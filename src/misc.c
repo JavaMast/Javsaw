@@ -54,7 +54,7 @@ void print_engine_info(int to_uci)
 {
   char my_date[64];
 
-  printf("Cfish %s", Version);
+  printf("CiChess 2.5 %s", Version);
 
   if (strlen(Version) == 0) {
     int day, month, year;
@@ -75,7 +75,7 @@ void print_engine_info(int to_uci)
                      , HasNuma ? " N" : ""
                      , to_uci ? "\nid author T. Romstad, M. Costalba, "
                                 "J. Kiiski, G. Linscott"
-                              : " by Syzygy based on Stockfish, compiled by ChessMan3");
+                              : " by ChessMan3 based on Cfish and CorChess");
   fflush(stdout);
 }
 

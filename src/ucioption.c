@@ -101,7 +101,7 @@ static void on_book_depth(Option *opt)
 #endif
 
 static Option optionsMap[] = {
-  { "Contempt", OPT_TYPE_SPIN, 21, -100, 100, NULL, NULL, 0, NULL },
+  { "Contempt", OPT_TYPE_SPIN, 12, -100, 100, NULL, NULL, 0, NULL },
   { "Analysis Contempt", OPT_TYPE_COMBO, 0, 0, 0,
     "Both var Off var Both var White var Black", NULL, 0, NULL },
   { "Threads", OPT_TYPE_SPIN, 1, 1, MAX_THREADS, NULL, on_threads, 0, NULL },
@@ -137,7 +137,7 @@ static Option optionsMap[] = {
   { "KingSafe", OPT_TYPE_SPIN, 100, 100, 1500, NULL, NULL, 0, NULL },
   { "Tactical", OPT_TYPE_CHECK, 0, 0, 0, NULL, NULL, 0, NULL },
   { "LMR", OPT_TYPE_CHECK, 1, 0, 0, NULL, NULL, 0, NULL },
-  { "LazyThreshold", OPT_TYPE_CHECK, 1, 0, 0, NULL, NULL, 0, NULL },
+  { "LazyThreshold", OPT_TYPE_CHECK, 0, 0, 0, NULL, NULL, 0, NULL },
   { "NUMA", OPT_TYPE_STRING, 0, 0, 0, "all", on_numa, 0, NULL },
   { NULL }
 };
