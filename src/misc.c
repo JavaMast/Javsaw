@@ -70,12 +70,12 @@ void print_engine_info(int to_uci)
     printf("%02d%02d%02d", day, month, year % 100);
   }
 
-  printf("%s%s%s%s\n", Is64Bit ? " 64" : ""
-                     , HasPext ? " BMI2" : (HasPopCnt ? " POPCNT" : "")
-                     , HasNuma ? " NUMA" : ""
+  printf("%s%s%s%s\n", Is64Bit ? " x64" : " x32"
+                     , HasPext ? " BMI2" : (USE_BMI1 ? " BMI1" : (USE_AVX2 ? " AVX2" : (HasPopCnt ? " POP" : "")))
+                     , HasNuma ? " N" : ""
                      , to_uci ? "\nid author T. Romstad, M. Costalba, "
                                 "J. Kiiski, G. Linscott"
-                              : " by Syzygy based on Stockfish");
+                              : " by Syzygy based on Stockfish, compiled by ChessMan3");
   fflush(stdout);
 }
 

@@ -237,7 +237,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   }
 
   // Step 7. Razoring
-  if (   !PvNode
+  if ( option_value(OPT_RAZORING) && !PvNode
       && depth <= ONE_PLY)
   {
     if (eval + RazorMargin1 <= alpha)
@@ -257,14 +257,14 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
              || (ss-2)->staticEval == VALUE_NONE;
 
   // Step 8. Futility pruning: child node
-  if (   !rootNode
+  if ( option_value(OPT_FUTILITY) && !rootNode
       &&  depth < 7 * ONE_PLY
       &&  eval - futility_margin(depth, improving) >= beta
       &&  eval < VALUE_KNOWN_WIN)  // Do not return unproven wins
     return eval; // - futility_margin(depth); (do not do the right thing)
 
   // Step 9. Null move search with verification search (is omitted in PV nodes)
-  if (   !PvNode
+  if ( option_value(OPT_NULLMOVE) && !PvNode
       && (ss-1)->currentMove != MOVE_NULL
       && (ss-1)->statScore < 22500
       && eval >= beta
@@ -313,7 +313,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   // Step 10. ProbCut
   // If we have a good enough capture and a reduced search returns a value
   // much above beta, we can (almost) safely prune the previous move.
-  if (   !PvNode
+  if ( option_value(OPT_PROBCUT) && !PvNode
       &&  depth >= 5 * ONE_PLY
       &&  abs(beta) < VALUE_MATE_IN_MAX_PLY)
   {
@@ -464,7 +464,7 @@ moves_loop: // When in check search starts from here.
     newDepth = depth - ONE_PLY + extension;
 
     // Step 14. Pruning at shallow depth
-    if (  !rootNode
+    if ( option_value(OPT_PRUNING) && !rootNode
         && pos_non_pawn_material(pos_stm())
         && bestValue > VALUE_MATED_IN_MAX_PLY)
     {
@@ -484,7 +484,7 @@ moves_loop: // When in check search starts from here.
 
         // Countermoves based pruning
         if (   lmrDepth < 4
-            && (lmrDepth < 3 || ((ss-1)->statScore >0 && !PvNode))
+            && (lmrDepth < 3 || ((ss - 1)->statScore > 0 && !PvNode))
             && (*cmh )[movedPiece][to_sq(move)] < CounterMovePruneThreshold
             && (*fmh )[movedPiece][to_sq(move)] < CounterMovePruneThreshold)
           continue;
@@ -532,7 +532,7 @@ moves_loop: // When in check search starts from here.
 
     // Step 16. Reduced depth search (LMR). If the move fails high it will be
     // re-searched at full depth.
-    if (    depth >= 3 * ONE_PLY
+    if (  option_value(OPT_LMR) && depth >= 3 * ONE_PLY
         &&  moveCount > 1
         && (!captureOrPromotion || moveCountPruning))
     {
@@ -583,6 +583,12 @@ moves_loop: // When in check search starts from here.
         // Decrease/increase reduction for moves with a good/bad history.
         r -= ss->statScore / 20000 * ONE_PLY;
       }
+
+       // The "Wide Search" option looks Engine to look at more positions per search depth, but Engine will play
+       // weaker overall.
+       int widesearch = option_value(OPT_WIDESEARCH);
+       if ( widesearch && ( ss->ply < depth / 2 - ONE_PLY))
+         r = DEPTH_ZERO;
 
       Depth d = max(newDepth - max(r, DEPTH_ZERO), ONE_PLY);
 
