@@ -24,6 +24,7 @@
 #include "evaluate.h"
 #include "material.h"
 #include "pawns.h"
+#include "uci.h"
 
 // Struct EvalInfo contains various information computed and collected
 // by the evaluation functions.
@@ -453,10 +454,13 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
 
     // Transform the kingDanger units into a Score, and subtract it from
     // the evaluation.
+    int KingSafe = option_value(OPT_KingSafe) / 100;
+    if (option_value(OPT_Tactical))
+    KingSafe = 5;
     if (kingDanger > 0) {
       int mobilityDanger = mg_value(mobility[Them] - mobility[Us]);
       kingDanger = max(0, kingDanger + mobilityDanger);
-      score -= make_score(kingDanger * kingDanger / 4096, kingDanger / 16);
+      score -= make_score(kingDanger * KingSafe * kingDanger / 4096, kingDanger / 16);
     }
   }
 
@@ -788,8 +792,9 @@ Value evaluate(const Pos *pos)
   score += ei.pe->score;
 
   // Early exit if score is high
+  int UseLazy = option_value(OPT_UseLazy);
   v = (mg_value(score) + eg_value(score)) / 2;
-  if (abs(v) > LazyThreshold)
+  if (UseLazy && abs(v) > LazyThreshold)
     return pos_stm() == WHITE ? v : -v;
 
   // Initialize attack and king safety bitboards.
