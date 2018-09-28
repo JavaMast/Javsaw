@@ -77,8 +77,8 @@ typedef struct EvalInfo EvalInfo;
 #define KingSide    (FileEBB | FileFBB | FileGBB | FileHBB)
 
 static const Bitboard KingFlank[8] = {
-  QueenSide, QueenSide, QueenSide, CenterFiles,
-  CenterFiles, KingSide, KingSide, KingSide
+  QueenSide ^ FileDBB, QueenSide, QueenSide, CenterFiles,
+  CenterFiles, KingSide, KingSide, KingSide ^ FileEBB
 };
 
 // Thresholds for lazy and space evaluation
@@ -165,15 +165,14 @@ static const int PassedDanger[8] = { 0, 0, 0, 3, 7, 11, 20 };
 static const Score BishopPawns        = S(  3,  7);
 static const Score CloseEnemies       = S(  6,  0);
 static const Score CorneredBishop     = S( 50, 50);
-static const Score Hanging            = S( 52, 30);
-static const Score HinderPassedPawn   = S(  4,  0);
+static const Score Hanging            = S( 57, 32);
 static const Score KingProtector      = S(  6,  6);
 static const Score KnightOnQueen      = S( 21, 11);
-static const Score LongDiagonalBishop = S( 22,  0);
+static const Score LongDiagonalBishop = S( 46,  0);
 static const Score MinorBehindPawn    = S( 16,  0);
 static const Score Overload           = S( 13,  6);
-static const Score PawnlessFlank      = S( 20, 80);
-static const Score RookOnPawn         = S(  8, 24);
+static const Score PawnlessFlank      = S( 19, 84);
+static const Score RookOnPawn         = S( 10, 30);
 static const Score SliderOnQueen      = S( 42, 21);
 static const Score ThreatByKing       = S( 23, 76);
 static const Score ThreatByPawnPush   = S( 45, 40);
@@ -299,7 +298,7 @@ INLINE Score evaluate_piece(const Pos *pos, EvalInfo *ei, Score *mobility,
 
         // Bonus for bishop on a long diagonal which can "see" both center
         // squares
-        if (more_than_one(Center & (attacks_bb_bishop(s, pieces_p(PAWN)) | sq_bb(s))))
+        if (more_than_one(attacks_bb_bishop(s, pieces_p(PAWN)) & Center))
           score += LongDiagonalBishop;
       }
 
@@ -374,11 +373,19 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
                          : AllSquares ^ Rank1BB ^ Rank2BB ^ Rank3BB);
 
   const Square ksq = square_of(Us, KING);
-  Bitboard weak, b, b1, b2, safe, unsafeChecks;
+  Bitboard kingFlank, weak, b, b1, b2, safe, unsafeChecks;
 
   // King shelter and enemy pawns storm
   Score score = Us == WHITE ? king_safety_white(ei->pe, pos, ksq)
                             : king_safety_black(ei->pe, pos, ksq);
+
+  // Find the squares that opponent attacks in our king flank and the squares
+  // which are attacked twice in that flank but not defended by our pawns.
+  kingFlank = KingFlank[file_of(ksq)];
+  b1 = ei->attackedBy[Them][0] & kingFlank & Camp;
+  b2 = b1 & ei->attackedBy2[Them] & ~ei->attackedBy[Us][PAWN];
+
+  int tropism = popcount(b1) + popcount(b2);
 
   // Main king safety evaluation
   if (ei->kingAttackersCount[Them] > (1 - piece_count(Them, QUEEN))) {
@@ -438,9 +445,10 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
                  +  69 * ei->kingAttacksCount[Them]
                  + 185 * popcount(ei->kingRing[Us] & weak)
                  + 129 * popcount(blockers_for_king(pos, Us) | unsafeChecks)
+                 +   4 * tropism
                  - 873 * !pieces_cp(Them, QUEEN)
                  -   6 * mg_value(score) / 8
-                 -   2;
+                 -   30;
 
     // Transform the kingDanger units into a Score, and subtract it from
     // the evaluation.
@@ -451,23 +459,13 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
     }
   }
 
-  // King tropism: firstly, find squares that we attack in the enemy king flank
-  File kf = file_of(ksq);
-  b = ei->attackedBy[Them][0] & KingFlank[kf] & Camp;
-
-  assert(((Us == WHITE ? b << 4 : b >> 4) & b) == 0);
-  assert(popcount(Us == WHITE ? b << 4 : b >> 4) == popcount(b));
-
-  // Secondly, add the squares which are attacked twice in that flank and
-  // which are not defended by our pawns.
-  b =  (Us == WHITE ? b << 4 : b >> 4)
-     | (b & ei->attackedBy2[Them] & ~ei->attackedBy[Us][PAWN]);
-
-  score -= CloseEnemies * popcount(b);
-
   // Penalty when our king is on a pawnless flank.
-  if (!(pieces_p(PAWN) & KingFlank[kf]))
+  if (!(pieces_p(PAWN) & kingFlank))
     score -= PawnlessFlank;
+
+  // King tropism bonus to anticipate slow motion attacks on our king
+  score -= CloseEnemies * tropism;
+
 
   return score;
 }
@@ -486,7 +484,7 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
 
   enum { Minor, Rook };
 
-  Bitboard b, weak, defended, stronglyProtected, safeThreats;
+  Bitboard b, weak, defended, stronglyProtected, safe;
   Score score = SCORE_ZERO;
 
   // Non-pawn enemies
@@ -495,8 +493,8 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
   // Our safe or protected pawns
   b = pieces_cp(Us, PAWN) & (~ei->attackedBy[Them][0] | ei->attackedBy[Us][0]);
 
-  safeThreats = (shift_bb(Right, b) | shift_bb(Left, b)) & nonPawnEnemies;
-  score += ThreatBySafePawn * popcount(safeThreats);
+  safe = (shift_bb(Right, b) | shift_bb(Left, b)) & nonPawnEnemies;
+  score += ThreatBySafePawn * popcount(safe);
 
   // Squares strongly protected by the opponent, either because they attack the
   // square with a pawn or because they attack the square twice and we don't.
@@ -520,6 +518,9 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
       score += ThreatByMinor[piece_on(s) - 8 * Them];
       if (piece_on(s) != make_piece(Them, PAWN))
         score += ThreatByRank * relative_rank_s(Them, s);
+
+      else if (blockers_for_king(pos, Them) & sq_bb(s))
+        score += score_divide(ThreatByRank * relative_rank_s(Them, s), 2);
     }
 
     b = weak & ei->attackedBy[Us][ROOK];
@@ -528,6 +529,9 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
       score += ThreatByRook[piece_on(s) - 8 * Them];
       if (piece_on(s) != make_piece(Them, PAWN))
         score += ThreatByRank * relative_rank_s(Them, s);
+
+      else if (blockers_for_king(pos, Them) & sq_bb(s))
+        score += score_divide(ThreatByRank * relative_rank_s(Them, s), 2);
     }
 
     // Bonus for king attacks on pawns or pieces which are not pawn-defended
@@ -555,25 +559,22 @@ INLINE Score evaluate_threats(const Pos *pos, EvalInfo *ei, const int Us)
       & (ei->attackedBy[Us][0] | ~ei->attackedBy[Them][0]);
 
   // Add a bonus for each new pawn threat from those squares
-  b =  (shift_bb(Left, b) | shift_bb(Right, b))
-     &  pieces_c(Them)
-     & ~ei->attackedBy[Us][PAWN];
-
+  b = (shift_bb(Left, b) | shift_bb(Right, b)) & pieces_c(Them);
   score += ThreatByPawnPush * popcount(b);
 
   // Bonus for impending threats against enemy queen
   if (piece_count(Them, QUEEN) == 1) {
     Square s = square_of(Them, QUEEN);
-    safeThreats = ei->mobilityArea[Us] & ~stronglyProtected;
+    safe = ei->mobilityArea[Us] & ~stronglyProtected;
 
     b = ei->attackedBy[Us][KNIGHT] & attacks_from_knight(s);
 
-    score += KnightOnQueen * popcount(b & safeThreats);
+    score += KnightOnQueen * popcount(b & safe);
 
     b =  (ei->attackedBy[Us][BISHOP] & attacks_from_bishop(s))
        | (ei->attackedBy[Us][ROOK  ] & attacks_from_rook(s));
 
-    score += SliderOnQueen * popcount(b & safeThreats & ei->attackedBy2[Us]);
+    score += SliderOnQueen * popcount(b & safe & ei->attackedBy2[Us]);
   }
 
   return score;
@@ -603,9 +604,6 @@ INLINE Score evaluate_passed_pawns(const Pos *pos, EvalInfo *ei, const int Us)
     Square s = pop_lsb(&b);
 
     assert(!(pieces_cp(Them, PAWN) & forward_file_bb(Us, s + Up)));
-
-    bb = forward_file_bb(Us, s) & pieces_c(Them);
-    score -= HinderPassedPawn * popcount(bb);
 
     int r = relative_rank_s(Us, s);
     int w = PassedDanger[r];
@@ -652,8 +650,6 @@ INLINE Score evaluate_passed_pawns(const Pos *pos, EvalInfo *ei, const int Us)
 
         mbonus += k * w, ebonus += k * w;
       }
-      else if (pieces_c(Us) & sq_bb(blockSq))
-        mbonus += w + r * 2, ebonus += w + r * 2;
     } // w != 0
 
     // Scale down bonus for candidate passers which need more than one
@@ -724,7 +720,7 @@ INLINE Value evaluate_initiative(const Pos *pos, int asymmetry, Value eg)
                   +  12 * outflanking
                   +  16 * bothFlanks
                   +  48 * !(pos_non_pawn_material(WHITE) + pos_non_pawn_material(BLACK))
-                  - 136;
+                  - 118;
 
   // Now apply the bonus: note that we find the attacking side by extracting
   // the sign of the endgame value, and that we carefully cap the bonus so
@@ -747,7 +743,7 @@ INLINE int evaluate_scale_factor(const Pos *pos, EvalInfo *ei, Value eg)
     if (   opposite_bishops(pos)
         && pos_non_pawn_material(WHITE) == BishopValueMg
         && pos_non_pawn_material(BLACK) == BishopValueMg)
-      return 31;
+      return 8 + 4 * ei->pe->asymmetry;
     else
       return min(40 + (opposite_bishops(pos) ? 2 : 7) * piece_count(strongSide, PAWN), sf);
   }

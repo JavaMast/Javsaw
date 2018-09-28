@@ -52,7 +52,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   Key posKey;
   Move ttMove, move, excludedMove, bestMove;
   Depth extension, newDepth;
-  Value bestValue, value, ttValue, eval, maxValue;
+  Value bestValue, value, ttValue, eval, maxValue, pureStaticEval;
   int ttHit, inCheck, givesCheck, improving;
   int captureOrPromotion, doFullDepthSearch, moveCountPruning, skipQuiets;
   int ttCapture, pvExact;
@@ -84,7 +84,8 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   if (!rootNode) {
     // Step 2. Check for aborted search and immediate draw
     if (load_rlx(Signals.stop) || is_draw(pos) || ss->ply >= MAX_PLY)
-      return ss->ply >= MAX_PLY && !inCheck ? evaluate(pos) : VALUE_DRAW;
+      return  ss->ply >= MAX_PLY && !inCheck
+            ? evaluate(pos) : VALUE_DRAW;
 
     // Step 3. Mate distance pruning. Even if we mate at the next move our
     // score would be at best mate_in(ss->ply+1), but if alpha is already
@@ -215,43 +216,38 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
 
   // Step 6. Static evaluation of the position
   if (inCheck) {
-    ss->staticEval = VALUE_NONE;
+    ss->staticEval = pureStaticEval = VALUE_NONE;
     improving = 0;
     goto moves_loop; // Skip early pruning when in check
   } else if (ttHit) {
     // Never assume anything on values stored in TT
-    if ((ss->staticEval = eval = tte_eval(tte)) == VALUE_NONE)
-      eval = ss->staticEval = evaluate(pos);
+    if ((eval = tte_eval(tte)) == VALUE_NONE)
+      eval = evaluate(pos);
+    ss->staticEval = pureStaticEval = eval;
 
     // Can ttValue be used as a better position evaluation?
     if (ttValue != VALUE_NONE)
       if (tte_bound(tte) & (ttValue > eval ? BOUND_LOWER : BOUND_UPPER))
         eval = ttValue;
   } else {
-    eval = ss->staticEval =
-    (ss-1)->currentMove != MOVE_NULL ? evaluate(pos)
-                                     : -(ss-1)->staticEval + 2 * Tempo;
+    if ((ss-1)->currentMove != MOVE_NULL) {
+      int p = (ss-1)->statScore;
+      int bonus = p > 0 ? (-p - 2500) / 512 :
+                  p < 0 ? (-p + 2500) / 512 : 0;
+      pureStaticEval = evaluate(pos);
+      ss->staticEval = eval = pureStaticEval + bonus;
+    } else
+      ss->staticEval = eval = pureStaticEval = -(ss-1)->staticEval + 2 * Tempo;
 
     tte_save(tte, posKey, VALUE_NONE, BOUND_NONE, DEPTH_NONE, 0,
-             ss->staticEval, tt_generation());
+             pureStaticEval, tt_generation());
   }
 
   // Step 7. Razoring
-  if (   !PvNode
-      && depth <= ONE_PLY)
-  {
-    if (eval + RazorMargin1 <= alpha)
-      return qsearch_NonPV_false(pos, ss, alpha, DEPTH_ZERO);
-  }
-  else if (   !PvNode
-           && depth <= 2 * ONE_PLY
-           && eval + RazorMargin2 <= alpha)
-  {
-    Value ralpha = alpha - RazorMargin2;
-    Value v = qsearch_NonPV_false(pos, ss, ralpha, DEPTH_ZERO);
-    if (v <= ralpha)
-      return v;
-  }
+  if (   depth < 2 * ONE_PLY
+      && eval <= alpha - RazorMargin)
+    return PvNode ? qsearch_PV_false(pos, ss, alpha, beta, DEPTH_ZERO)
+                  : qsearch_NonPV_false(pos, ss, alpha, DEPTH_ZERO);
 
   improving =   ss->staticEval >= (ss-2)->staticEval
              || (ss-2)->staticEval == VALUE_NONE;
@@ -266,7 +262,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   // Step 9. Null move search with verification search (is omitted in PV nodes)
   if (   !PvNode
       && (ss-1)->currentMove != MOVE_NULL
-      && (ss-1)->statScore < 22500
+      && (ss-1)->statScore < 23200
       && eval >= beta
       && ss->staticEval >= beta - 36 * depth / ONE_PLY + 225
       && !excludedMove
@@ -276,7 +272,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
     assert(eval - beta >= 0);
 
     // Null move dynamic reduction based on depth and value
-    Depth R = ((823 + 67 * depth / ONE_PLY) / 256 + min((eval - beta) / PawnValueMg, 3)) * ONE_PLY;
+    Depth R = ((823 + 67 * depth / ONE_PLY) / 256 + min((eval - beta) / 200, 3)) * ONE_PLY;
 
     ss->currentMove = MOVE_NULL;
     ss->history = &(*pos->counterMoveHistory)[0][0];
@@ -326,7 +322,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
 
     int probCutCount = 3;
     while ((move = next_move(pos, 0)) && probCutCount)
-      if (is_legal(pos, move)) {
+      if (move != excludedMove && is_legal(pos, move)) {
         probCutCount--;
         ss->currentMove = move;
         ss->history = &(*pos->counterMoveHistory)[moved_piece(move)][to_sq(move)];
@@ -483,8 +479,7 @@ moves_loop: // When in check search starts from here.
         int lmrDepth = max(newDepth - reduction(improving, depth, moveCount, NT), DEPTH_ZERO) / ONE_PLY;
 
         // Countermoves based pruning
-        if (   lmrDepth < 4
-            && (lmrDepth < 3 || ((ss-1)->statScore >0 && !PvNode))
+        if (   lmrDepth <= ((ss-1)->statScore > 0 ? 3 : 2)
             && (*cmh )[movedPiece][to_sq(move)] < CounterMovePruneThreshold
             && (*fmh )[movedPiece][to_sq(move)] < CounterMovePruneThreshold)
           continue;
@@ -538,15 +533,11 @@ moves_loop: // When in check search starts from here.
     {
       Depth r = reduction(improving, depth, moveCount, NT);
 
-      if (captureOrPromotion) {
-        // Decrease reduction depending on opponent's stat score
-        if ((ss-1)->statScore < 0)
-          r -= ONE_PLY;
-      } else {
-        // Decrease reduction if opponent's move count is high
-        if ((ss-1)->moveCount > 15)
-          r -= ONE_PLY;
+      // Decrease reduction if opponent's move count is high.
+      if ((ss-1)->moveCount > 15)
+        r -= ONE_PLY;
 
+      if (!captureOrPromotion) {
         // Decrease reduction for exact PV nodes
         if (pvExact)
           r -= ONE_PLY;
@@ -721,7 +712,7 @@ moves_loop: // When in check search starts from here.
     tte_save(tte, posKey, value_to_tt(bestValue, ss->ply),
         bestValue >= beta ? BOUND_LOWER :
         PvNode && bestMove ? BOUND_EXACT : BOUND_UPPER,
-        depth, bestMove, ss->staticEval, tt_generation());
+        depth, bestMove, pureStaticEval, tt_generation());
 
   assert(bestValue > -VALUE_INFINITE && bestValue < VALUE_INFINITE);
 
