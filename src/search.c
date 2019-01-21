@@ -574,10 +574,7 @@ skip_search:
         // for this move, the longer the move has been stable, the more.
         // Use part of the time gained from a previous stable move for the
         // current move.
-        timeReduction = 1;
-        for (int i = 3; i < 6; i++)
-          if (lastBestMoveDepth * i < pos->completedDepth)
-            timeReduction *= 1.25;
+        timeReduction = lastBestMoveDepth + 10 * ONE_PLY < pos->completedDepth ? 1.95 : 1.0;
         bestMoveInstability *= pow(mainThread.previousTimeReduction, 0.528) / timeReduction;
 
         if (   rm->size == 1
