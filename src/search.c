@@ -22,7 +22,7 @@
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
-#include <string.h>   // For std::memset
+#include <string.h>   // For memset
 
 #include "evaluate.h"
 #include "misc.h"
@@ -79,6 +79,13 @@ static Value stat_bonus(Depth depth)
 {
   int d = depth / ONE_PLY;
   return d > 17 ? 0 : 29 * d * d + 138 * d - 134;
+}
+
+// Add a small random component to draw evaluations to keep search dynamic
+// and to avoid three-fold blindness. (Yucks, ugly hack)
+static Value value_draw(Depth depth, Pos *pos)
+{
+  return depth < 4 ? VALUE_DRAW : VALUE_DRAW + 2 * (pos->nodes % 2) - 1;
 }
 
 // Skill structure is used to implement strength limit
@@ -308,7 +315,7 @@ void mainthread_search(void)
   {
     int i, num = 0, maxNum = min(pos->rootMoves->size, Threads.numThreads);
     Move mvs[maxNum];
-    int votes[maxNum];
+    int64_t votes[maxNum];
     Value minScore = pos->rootMoves->move[0].score;
     for (int idx = 1; idx < Threads.numThreads; idx++)
       minScore = min(minScore, Threads.pos[idx]->rootMoves->move[0].score);
@@ -322,9 +329,10 @@ void mainthread_search(void)
         mvs[i] = m;
         votes[i] = 0;
       }
-      votes[i] += p->rootMoves->move[0].score - minScore + p->completedDepth;
+      int64_t diff = p->rootMoves->move[0].score - minScore + 1;
+      votes[i] += 200 + (diff * diff) * p->completedDepth;
     }
-    int bestVote = votes[0];
+    int64_t bestVote = votes[0];
     for (int idx = 1; idx < Threads.numThreads; idx++) {
       Pos *p = Threads.pos[idx];
       for (i = 0; mvs[i] != p->rootMoves->move[0].pv[0]; i++);
@@ -362,6 +370,7 @@ void mainthread_search(void)
 void thread_search(Pos *pos)
 {
   Value bestValue, alpha, beta, delta;
+  Move pv[MAX_PLY + 1];
   Move lastBestMove = 0;
   Depth lastBestMoveDepth = DEPTH_ZERO;
   double timeReduction = 1.0;
@@ -372,11 +381,12 @@ void thread_search(Pos *pos)
     memset(SStackBegin(ss[i]), 0, SStackSize);
   (ss-1)->endMoves = pos->moveList;
 
-  for (int i = -4; i < 0; i++)
+  for (int i = -5; i < 0; i++)
     ss[i].history = &(*pos->counterMoveHistory)[0][0]; // Use as sentinel
 
   for (int i = 0; i <= MAX_PLY; i++)
     ss[i].ply = i;
+  ss->pv = pv;
 
   bestValue = delta = alpha = -VALUE_INFINITE;
   beta = VALUE_INFINITE;
@@ -455,7 +465,7 @@ void thread_search(Pos *pos)
       // Reset aspiration window starting size
       if (pos->rootDepth >= 5 * ONE_PLY) {
         Value previousScore = rm->move[pvIdx].previousScore;
-        delta = (Value)18;
+        delta = 20;
         alpha = max(previousScore - delta, -VALUE_INFINITE);
         beta  = min(previousScore + delta,  VALUE_INFINITE);
 
@@ -468,8 +478,10 @@ void thread_search(Pos *pos)
       // Start with a small aspiration window and, in the case of a fail
       // high/low, re-search with a bigger window until we're not failing
       // high/low anymore.
-      while (1) {
-        bestValue = search_PV(pos, ss, alpha, beta, pos->rootDepth);
+      int failedHighCnt = 0;
+      while (true) {
+        Depth adjustedDepth = max(ONE_PLY, pos->rootDepth - failedHighCnt * ONE_PLY);
+        bestValue = search_PV(pos, ss, alpha, beta, adjustedDepth);
 
         // Bring the best move to the front. It is critical that sorting
         // is done with a stable algorithm because all the values but the
@@ -500,11 +512,14 @@ void thread_search(Pos *pos)
           alpha = max(bestValue - delta, -VALUE_INFINITE);
 
           if (pos->threadIdx == 0) {
+            failedHighCnt = 0;
             failedLow = true;
             Signals.stopOnPonderhit = 0;
           }
         } else if (bestValue >= beta) {
           beta = min(bestValue + delta, VALUE_INFINITE);
+          if (pos->threadIdx == 0)
+            failedHighCnt++;
         } else
           break;
 
@@ -550,10 +565,8 @@ skip_search:
       if (!Signals.stop && !Signals.stopOnPonderhit) {
         // Stop the search if only one legal move is available, or if all
         // of the available time has been used.
-        const int F[] = { failedLow,
-                          bestValue - mainThread.previousScore };
-
-        int improvingFactor = max(246, min(832, 306 + 119 * F[0] - 6 * F[1]));
+        double fallingEval = (306 + 119 * failedLow + 6 * (mainThread.previousScore - bestValue)) / 581.0;
+        fallingEval = max(0.5, min(1.5, fallingEval));
 
         double bestMoveInstability = 1 + mainThread.bestMoveChanges;
 
@@ -568,7 +581,7 @@ skip_search:
         bestMoveInstability *= pow(mainThread.previousTimeReduction, 0.528) / timeReduction;
 
         if (   rm->size == 1
-            || time_elapsed() > time_optimum() * bestMoveInstability * improvingFactor / 581)
+            || time_elapsed() > time_optimum() * bestMoveInstability * fallingEval)
         {
           // If we are allowed to ponder do not stop the search now but
           // keep pondering until the GUI sends "ponderhit" or "stop".
@@ -835,7 +848,7 @@ static void uci_print_pv(Pos *pos, Depth depth, Value alpha, Value beta)
       TB_expand_mate(pos, &rm->move[i]);
 
     printf("info depth %d seldepth %d multipv %d score %s",
-           d / ONE_PLY, rm->move[i].selDepth + 1, (int)i + 1,
+           d / ONE_PLY, rm->move[i].selDepth, i + 1,
            uci_value(buf, v));
 
     if (!tb && i == pvIdx)
