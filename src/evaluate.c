@@ -700,12 +700,12 @@ INLINE Value evaluate_initiative(const Pos *pos, int asymmetry, Value eg)
   bool bothFlanks = (pieces_p(PAWN) & QueenSide) && (pieces_p(PAWN) & KingSide);
 
   // Compute the initiative bonus for the attacking side
-  int initiative =    8 * asymmetry
-                  +  12 * popcount(pieces_p(PAWN))
-                  +  12 * outflanking
-                  +  16 * bothFlanks
-                  +  48 * !(pos_non_pawn_material(WHITE) + pos_non_pawn_material(BLACK))
-                  - 118;
+  int initiative =    9 * asymmetry
+                  +  11 * popcount(pieces_p(PAWN))
+                  +   9 * outflanking
+                  +  18 * bothFlanks
+                  +  49 * !(pos_non_pawn_material(WHITE) + pos_non_pawn_material(BLACK))
+                  - 121;
 
   // Now apply the bonus: note that we find the attacking side by extracting
   // the sign of the endgame value, and that we carefully cap the bonus so
