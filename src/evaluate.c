@@ -663,6 +663,7 @@ INLINE Score evaluate_passed_pawns(const Pos *pos, EvalInfo *ei, const int Us)
 INLINE Score evaluate_space(const Pos *pos, EvalInfo *ei, const int Us)
 {
   const int Them = (Us == WHITE ? BLACK : WHITE);
+  const int Down = (Us == WHITE ? SOUTH : NORTH);
   const Bitboard SpaceMask =
     Us == WHITE ? (FileCBB | FileDBB | FileEBB | FileFBB) & (Rank2BB | Rank3BB | Rank4BB)
                 : (FileCBB | FileDBB | FileEBB | FileFBB) & (Rank7BB | Rank6BB | Rank5BB);
@@ -674,8 +675,8 @@ INLINE Score evaluate_space(const Pos *pos, EvalInfo *ei, const int Us)
 
   // Find all squares which are at most three squares behind some friendly pawn
   Bitboard behind = pieces_cp(Us, PAWN);
-  behind |= (Us == WHITE ? behind >>  8 : behind <<  8);
-  behind |= (Us == WHITE ? behind >> 16 : behind << 16);
+  behind |= shift_bb(Down, behind);
+  behind |= shift_bb(Down, shift_bb(Down, behind));
 
   // Since SpaceMask[Us] is fully on our half of the board...
   assert((unsigned)(safe >> (Us == WHITE ? 32 : 0)) == 0);
