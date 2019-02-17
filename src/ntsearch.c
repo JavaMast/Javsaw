@@ -468,11 +468,12 @@ moves_loop: // When in check search starts from here.
       ss->countermove = cm; // pedantic
       ss->mpKillers[0] = k1; ss->mpKillers[1] = k2;
     }
+	// Check extension
     else if (    givesCheck
-             &&  see_test(pos, move, 0))
+             && (blockers_for_king(pos, pos_stm() ^ 1) & sq_bb(from_sq(move)) || see_test(pos, move, 0)))
       extension = ONE_PLY;
 
-    // Extension if castling
+    // Castling extension
     else if (type_of_m(move) == CASTLING)
       extension = ONE_PLY;
 
