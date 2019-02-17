@@ -368,7 +368,6 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
     tte = tt_probe(posKey, &ttHit);
     // ttValue = ttHit ? value_from_tt(tte_value(tte), ss->ply) : VALUE_NONE;
     ttMove = ttHit ? tte_move(tte) : 0;
-    pvHit = ttHit ? tte_pv_hit(tte) : 0;
   }
 
 moves_loop: // When in check search starts from here.
