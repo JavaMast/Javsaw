@@ -179,7 +179,7 @@ static const Score ThreatByKing       = S( 24, 89);
 static const Score ThreatByPawnPush   = S( 48, 39);
 static const Score ThreatByRank       = S( 13,  0);
 static const Score ThreatBySafePawn   = S(173, 94);
-static const Score TrappedRook        = S( 96,  4);
+static const Score TrappedRook        = S( 47,  4);
 static const Score WeakQueen          = S( 49, 15);
 static const Score WeakUnopposedPawn  = S( 12, 23);
 
@@ -327,7 +327,7 @@ INLINE Score evaluate_piece(const Pos *pos, EvalInfo *ei, Score *mobility,
         File kf = file_of(square_of(Us, KING));
 
         if ((kf < FILE_E) == (file_of(s) < kf))
-          score -= (TrappedRook - make_score(mob * 22, 0)) * (1 + !can_castle_c(Us));
+          score -= TrappedRook * (1 + !can_castle_c(Us));
       }
     }
 
