@@ -450,12 +450,13 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
   kingDanger +=  ei->kingAttackersCount[Them] * ei->kingAttackersWeight[Them]
                +  69 * ei->kingAttacksCount[Them]
                + 185 * popcount(ei->kingRing[Us] & weak)
+			   - 100 * (bool)(ei->attackedBy[Us][KNIGHT] & ei->attackedBy[Us][KING])
                + 150 * popcount(blockers_for_king(pos, Us) | unsafeChecks)
                +   5 * tropism * tropism / 16
                - 873 * !pieces_cp(Them, QUEEN)
                -   6 * mg_value(score) / 8
                +       mg_value(mobility[Them] - mobility[Us])
-               -   30;
+               -   25;
 
   // Transform the kingDanger units into a Score, and subtract it from
   // the evaluation
