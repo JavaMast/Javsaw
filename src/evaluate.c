@@ -90,8 +90,8 @@ static const int KingAttackWeights[8] = { 0, 0, 77, 55, 44, 10 };
 // Penalties for enemy's safe checks
 enum {
   QueenSafeCheck  = 780,
-  RookSafeCheck   = 880,
-  BishopSafeCheck = 435,
+  RookSafeCheck   = 1080,
+  BishopSafeCheck = 635,
   KnightSafeCheck = 790
 };
 
@@ -402,27 +402,42 @@ INLINE Score evaluate_king(const Pos *pos, EvalInfo *ei, Score *mobility,
   b1 = attacks_bb_rook(ksq, pieces() ^ pieces_cp(Us, QUEEN));
   b2 = attacks_bb_bishop(ksq, pieces() ^ pieces_cp(Us, QUEEN));
 
-  // Enemy queen safe checks
-  if ((b1 | b2) & ei->attackedBy[Them][QUEEN] & safe & ~ei->attackedBy[Us][QUEEN])
-    kingDanger += QueenSafeCheck;
-
-  b1 &= ei->attackedBy[Them][ROOK];
-  b2 &= ei->attackedBy[Them][BISHOP];
-
   // Enemy rooks checks
-  if (b1 & safe)
-    kingDanger += RookSafeCheck;
-  else
-    unsafeChecks |= b1;
+  Bitboard RookCheck =  b1
+                        & safe
+                        & ei->attackedBy[Them][ROOK];
 
-  // Enemy bishops checks
-  if (b2 & safe)
+    if (RookCheck)
+    kingDanger += RookSafeCheck;
+    else
+    unsafeChecks |= b1 & ei->attackedBy[Them][ROOK];
+
+    // Enemy queen safe checks: we count them only if they are from squares from
+    // which we can't give a rook check, because rook checks are more valuable.
+    Bitboard QueenCheck =  (b1 | b2)
+                         & ei->attackedBy[Them][QUEEN]
+                         & safe
+                         & ~ei->attackedBy[Us][QUEEN]
+                         & ~RookCheck;
+
+  if (QueenCheck)
+        kingDanger += QueenSafeCheck;
+
+    // Enemy bishops checks: we count them only if they are from squares from
+    // which we can't give a queen check, because queen checks are more valuable.
+    Bitboard BishopCheck =  b2 
+                          & ei->attackedBy[Them][BISHOP]
+                          & safe
+                          & ~QueenCheck;
+
+    if (BishopCheck)
     kingDanger += BishopSafeCheck;
   else
-    unsafeChecks |= b2;
+    unsafeChecks |= b2 & ei->attackedBy[Them][BISHOP];
 
   // Enemy knights checks
   b = attacks_from_knight(ksq) & ei->attackedBy[Them][KNIGHT];
+
   if (b & safe)
     kingDanger += KnightSafeCheck;
   else
