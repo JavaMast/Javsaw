@@ -366,11 +366,9 @@ INLINE Bitboard slider_blockers(const Pos *pos, Bitboard sliders, Square s,
   snipers = (  (PseudoAttacks[ROOK  ][s] & pieces_pp(QUEEN, ROOK))
              | (PseudoAttacks[BISHOP][s] & pieces_pp(QUEEN, BISHOP))) & sliders;
 
-  Bitboard occupancy = pieces() & ~snipers;
-
   while (snipers) {
     Square sniperSq = pop_lsb(&snipers);
-    Bitboard b = between_bb(s, sniperSq) & occupancy;
+    Bitboard b = between_bb(s, sniperSq) & pieces();
 
     if (!more_than_one(b)) {
       result |= b;
