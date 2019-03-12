@@ -121,14 +121,6 @@ static const Score MobilityBonus[4][32] = {
     S(106,184), S(109,191), S(113,206), S(116,212) }
 };
 
-// Outpost[knight/bishop][supported by pawn] contains bonuses for minors
-// if they can reach an outpost square, bigger if that square is supported0
-// by a pawn. If the minor occupies an outpost square, then score is doubled.
-static const Score Outpost[][2] = {
-  { S(18, 6), S(36,12) }, // Knight
-  { S( 9, 3), S(18, 6) }  // Bishop
-};
-
 // RookOnFile[semiopen/open] contains bonuses for each rook when there is
 // no friendly pawn on the rook file.
 static const Score RookOnFile[2] = { S(18, 7), S(44, 20) };
@@ -182,6 +174,7 @@ static const Score ThreatBySafePawn   = S(173, 94);
 static const Score TrappedRook        = S( 47,  4);
 static const Score WeakQueen          = S( 49, 15);
 static const Score WeakUnopposedPawn  = S( 12, 23);
+static const Score Outpost            = S(  9,  3);
 
 #undef S
 #undef V
@@ -271,11 +264,13 @@ INLINE Score evaluate_piece(const Pos *pos, EvalInfo *ei, Score *mobility,
       // Bonus for outpost squares
       bb = OutpostRanks & ~ei->pe->pawnAttacksSpan[Them];
       if (bb & sq_bb(s))
-        score += Outpost[Pt == BISHOP][!!(ei->attackedBy[Us][PAWN] & sq_bb(s))] * 2;
+        score += Outpost * (Pt == KNIGHT ? 4 : 2)
+                         * (1 + (bool)(ei->attackedBy[Us][PAWN] & sq_bb(s)));
       else {
         bb &= b & ~pieces_c(Us);
         if (bb)
-          score += Outpost[Pt == BISHOP][!!(ei->attackedBy[Us][PAWN] & bb)];
+          score += Outpost * (Pt == KNIGHT ? 2 : 1)
+                           * (1 + (bool)(ei->attackedBy[Us][PAWN] & bb));
       }
 
       // Knight and Bishop bonus for being right behind a pawn
