@@ -58,7 +58,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
   Depth extension, newDepth;
   Value bestValue, value, ttValue, eval, maxValue, pureStaticEval;
   int ttHit, ttPv, inCheck, givesCheck, improving;
-  int captureOrPromotion, doFullDepthSearch, moveCountPruning, skipQuiets;
+  int captureOrPromotion, doFullDepthSearch, moveCountPruning;
   bool ttCapture;
   Piece movedPiece;
   int moveCount, captureCount, quietCount;
@@ -326,7 +326,7 @@ Value search_NonPV(Pos *pos, Stack *ss, Value alpha, Depth depth, int cutNode)
 
     mp_init_pc(pos, ttMove, rbeta - ss->staticEval);
 
-    int probCutCount = 3;
+    int probCutCount = 2 + 2 * cutNode;
     while ((move = next_move(pos, 0)) && probCutCount)
       if (move != excludedMove && is_legal(pos, move)) {
         probCutCount--;
@@ -373,13 +373,13 @@ moves_loop: // When in check search starts from here.
   mp_init(pos, ttMove, depth);
   value = bestValue; // Workaround a bogus 'uninitialized' warning under gcc
 
-  skipQuiets = 0;
+  moveCountPruning = 0;
   ttCapture = ttMove && is_capture_or_promotion(pos, ttMove);
 
   // Step 12. Loop through moves
   // Loop through all pseudo-legal moves until no moves remain or a beta
   // cutoff occurs
-  while ((move = next_move(pos, skipQuiets))) {
+  while ((move = next_move(pos, moveCountPruning))) {
     assert(move_is_ok(move));
 
     if (move == excludedMove)
@@ -418,9 +418,6 @@ moves_loop: // When in check search starts from here.
 
     givesCheck = gives_check(pos, ss, move);
 
-    moveCountPruning = depth < 16 * ONE_PLY
-                && moveCount >= FutilityMoveCounts[improving][depth / ONE_PLY];
-
     // Step 13. Singular and Gives Check Extensions
 
     // Singular extension search. If all moves but one fail low on a search
@@ -432,13 +429,13 @@ moves_loop: // When in check search starts from here.
         &&  move == ttMove
         && !rootNode
         && !excludedMove // No recursive singular search
-        &&  ttValue != VALUE_NONE
+     /* &&  ttValue != VALUE_NONE implicit in the next condition */
+        &&  abs(ttValue) < VALUE_KNOWN_WIN
         && (tte_bound(tte) & BOUND_LOWER)
         &&  tte_depth(tte) >= depth - 3 * ONE_PLY
         &&  is_legal(pos, move))
     {
-      Value singularBeta = max(ttValue - 2 * depth / ONE_PLY, -VALUE_MATE);
-//      Value singularBeta = min(max(ttValue - 2 * depth / ONE_PLY, -VALUE_MATE), VALUE_KNOWN_WIN);
+      Value singularBeta = ttValue - 2 * depth / ONE_PLY;
       ss->excludedMove = move;
       Move cm = ss->countermove;
       Move k1 = ss->mpKillers[0], k2 = ss->mpKillers[1];
@@ -479,15 +476,17 @@ moves_loop: // When in check search starts from here.
         && pos_non_pawn_material(pos_stm())
         && bestValue > VALUE_MATED_IN_MAX_PLY)
     {
+      // Skip quiet moves if movecount exceeds our FutilityMoveCount threshold
+      moveCountPruning = depth < 16 * ONE_PLY
+                && moveCount >= FutilityMoveCounts[improving][depth / ONE_PLY];
+
       if (   !captureOrPromotion
           && !givesCheck
           && !advanced_pawn_push(pos, move))
       {
         // Move count based pruning
-        if (moveCountPruning) {
-          skipQuiets = 1;
+        if (moveCountPruning)
           continue;
-        }
 
         // Reduced depth of the next LMR search
         int lmrDepth = max(newDepth - reduction(improving, depth, moveCount, NT), DEPTH_ZERO) / ONE_PLY;
