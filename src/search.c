@@ -67,11 +67,12 @@ INLINE int futility_margin(Depth d, int improving) {
 
 // Futility and reductions lookup tables, initialized at startup
 static int FutilityMoveCounts[2][16]; // [improving][depth]
-static int Reductions[2][64][64];  // [pv][improving][depth][moveNumber]
+static int Reductions[64]; // [depth or moveNumber]
 
 INLINE Depth reduction(int i, Depth d, int mn, const int NT)
 {
-  return (Reductions[i][min(d / ONE_PLY, 63)][min(mn, 63)] - NT) * ONE_PLY;
+  int r = Reductions[min(d / ONE_PLY, 63)] * Reductions[min(mn, 63)] / 1024;
+  return ((r + 512) / 1024 + (!i && r > 1024) - NT) * ONE_PLY;
 }
 
 // History and stats update bonus, based on depth
@@ -128,17 +129,8 @@ static int extract_ponder_from_tt(RootMove *rm, Pos *pos);
 
 void search_init(void)
 {
-  for (int imp = 0; imp <= 1; imp++)
-    for (int d = 1; d < 64; ++d)
-      for (int mc = 1; mc < 64; ++mc) {
-        double r = log(d) * log(mc) / 1.95;
-
-        Reductions[imp][d][mc] = ((int)lround(r));
-
-        // Increase reduction for non-PV nodes when eval is not improving
-        if (!imp && r > 1.0)
-          Reductions[imp][d][mc]++;
-      }
+  for (int i = 1; i < 64; ++i)
+      Reductions[i] = (int)(1024 * log(i) / sqrt(1.95));
 
   for (int d = 0; d < 16; ++d) {
     FutilityMoveCounts[0][d] = (5 + d * d) / 2;
